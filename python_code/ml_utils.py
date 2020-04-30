@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import glob
 
+
+from constants import LOSS, LINK_FOR_YOUR_SERVER, HUB_URL, ACTIVATION, OUTPUT_ACTIVATION, LEARNING_RATE, LAYERS_DROPOUT, CV_LAYERS_DROPOUT, CV_ACTIVATION, CV_LEARNING_RATE
 from sklearn.model_selection import train_test_split
 from pathlib import Path
 from sklearn.metrics import classification_report, confusion_matrix
-from tensorboard.plugins.hparams import api as hp
-from constants import LINK_FOR_YOUR_SERVER, HUB_URL, LOSS, LEARNING_RATE, OUTPUT_ACTIVATION
 
 
 class XrayTF:
@@ -21,12 +21,14 @@ class XrayTF:
         self.IMAGE_SIZE = IMAGE_SIZE
         self.BATCH_SIZE = BATCH_SIZE
 
-        self.INPUT_SHAPE = [None, self.IMAGE_SIZE, self.IMAGE_SIZE, 3]
+        self.INPUT_SHAPE = [self.IMAGE_SIZE, self.IMAGE_SIZE, 3]
         self.MODEL_URL = HUB_URL
 
-    # ----------------------------------
-    # MACHINE LEARNING DATA PRE_PROCESS
-    # ----------------------------------
+    # ============================================================================================================
+    # ============================================================================================================
+    # ==================================== MACHINE LEARNING DATA PRE_PROCESS =====================================
+    # ============================================================================================================
+    # ============================================================================================================
 
     def prepend_image_full_path(self):
         """
@@ -50,6 +52,7 @@ class XrayTF:
             y_col="labels",
             batch_size=self.BATCH_SIZE,
             target_size=(self.IMAGE_SIZE, self.IMAGE_SIZE),
+            shuffle=False
         )
 
         return df
@@ -65,11 +68,11 @@ class XrayTF:
                 width_shift_range=0.1,
                 rotation_range=5,
                 shear_range=0.01,
-                rescale=1/255
+                rescale=1./255
             )
         else:
             data_augment = tf.keras.preprocessing.image.ImageDataGenerator(
-                rescale=1/255
+                rescale=1./255
             )
 
         return data_augment
@@ -103,9 +106,12 @@ class XrayTF:
         @return - String : the predicted label based on prediction percentage.
         """
         return self.get_unique_labels()[np.argmax(prediction_probabilities)]
-    # ----------------------------------
-    # MACHINE LEARNING PROCESSING PART
-    # ----------------------------------
+
+    # ============================================================================================================
+    # ============================================================================================================
+    # ==================================== MACHINE LEARNING PROCESSING PART ======================================
+    # ============================================================================================================
+    # ============================================================================================================
 
     # Build a function to train and return a trained model
 
@@ -117,7 +123,7 @@ class XrayTF:
         model = self.create_model()
 
         early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor="loss", patience=50)  # stops after 3 rounds of no improvements
+            monitor="val_accuracy", patience=3)  # stops after 3 rounds of no improvements
         # Fit the model to the data passing it the callbacks we created
         model.fit(x=train_data,
                   epochs=epochs_num,
@@ -134,32 +140,82 @@ class XrayTF:
 
         @return - Object : model that is ready to be trained.
         """
-
         model = tf.keras.Sequential([
             hub.KerasLayer(self.MODEL_URL, trainable=False,
-                           input_shape=(self.IMAGE_SIZE, self.IMAGE_SIZE, 3)),
-
-            tf.keras.layers.Dense(512, activation='relu'),
-            tf.keras.layers.Dropout(0.5),
-
-            tf.keras.layers.Dense(512, activation='relu'),
-            tf.keras.layers.Dropout(0.5),
-
-            # Layer 2 (output layer)
-            tf.keras.layers.Dense(
-                units=len(self.get_unique_labels()), activation=OUTPUT_ACTIVATION)
+                           input_shape=self.INPUT_SHAPE)
         ])
+        for layer in LAYERS_DROPOUT:
+            for pair in layer:
+                model.add(tf.keras.layers.Dense(
+                    pair[0], activation=ACTIVATION))
+                model.add(tf.keras.layers.Dropout(pair[1]))
 
-        # Compile the model
+        model.add(tf.keras.layers.Dense(
+            units=len(self.get_unique_labels()), activation=OUTPUT_ACTIVATION))
+
         model.compile(
             loss=LOSS,
-            optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+            optimizer=tf.keras.optimizers.Adam(
+                learning_rate=LEARNING_RATE),
             metrics=["accuracy"]
         )
 
         model.summary()
 
         return model
+
+    def cross_validation(self, epochs_num, train_data, val_data, test_data):
+        scores = {}
+
+        for layer in CV_LAYERS_DROPOUT:
+
+            for act in CV_ACTIVATION:
+                for learning_rate in CV_LEARNING_RATE:
+                    model = tf.keras.Sequential([
+                        hub.KerasLayer(self.MODEL_URL, trainable=False,
+                                       input_shape=self.INPUT_SHAPE)
+                    ])
+                    for pair in layer:
+                        model.add(tf.keras.layers.Dense(
+                            pair[0], activation=act))
+                        model.add(tf.keras.layers.Dropout(pair[1]))
+
+                    model.add(tf.keras.layers.Dense(
+                        units=len(self.get_unique_labels()), activation=OUTPUT_ACTIVATION))
+
+                    model.compile(
+                        loss=LOSS,
+                        optimizer=tf.keras.optimizers.Adam(
+                            learning_rate=learning_rate),
+                        metrics=["accuracy"]
+                    )
+
+                    early_stopping = tf.keras.callbacks.EarlyStopping(
+                        monitor="val_accuracy", patience=3)  # stops after 3 rounds of no improvements
+                    # Fit the model to the data passing it the callbacks we created
+
+                    model.summary()
+                    model.fit(x=train_data,
+                              epochs=epochs_num,
+                              validation_data=val_data,
+                              verbose=1,
+                              validation_freq=1,  # check validation metrics every epoch
+                              callbacks=[early_stopping])
+
+                    loss, acc = model.evaluate(test_data)
+
+                    scores[acc] = {
+                        "layer": layer,
+                        "activation": act,
+                        "stopping": early_stopping.stopped_epoch,
+                        "lr": learning_rate,
+                        "model": model
+                    }
+
+                    del early_stopping
+                    del model
+
+        return scores
 
     def model_exist(self, sickness):
         """
@@ -174,9 +230,11 @@ class XrayTF:
             return self.load_model(model[0])
         return None
 
-    # ----------------------------------
-    # MACHINE LEARNING POST_PROCESS PART
-    # ----------------------------------
+    # ============================================================================================================
+    # ============================================================================================================
+    # ==================================== MACHINE LEARNING POST_PROCESS PART ====================================
+    # ============================================================================================================
+    # ============================================================================================================
 
     def plot_pred_conf(self, prediction_probabilities, labels, n=1):
         """
@@ -246,9 +304,11 @@ class XrayTF:
     def generate_classification_report(self, y_test, y_val):
         print(classification_report(y_test, y_val))
 
-    # ----------------------------------
-    # MACHINE LEARNING UTILS
-    # ----------------------------------
+    # ============================================================================================================
+    # ============================================================================================================
+    # ==================================== MACHINE LEARNING UTILS ================================================
+    # ============================================================================================================
+    # ============================================================================================================
 
     def get_unique_labels(self):
         return self.df.labels.unique()
@@ -326,10 +386,10 @@ class XrayTF:
         Function helper for No finding vs label chosen.
         replaces the dataframe which would now only consist two values.
         """
-        self.df = self.df[self.df["labels"].isin([label, "No Finding"])]
+        self.df = self.df[self.df["labels"].isin([label, "Pneumonia"])]
 
         if quota:
-            df_no_finding = self.df[self.df.labels == "No Finding"]
+            df_no_finding = self.df[self.df.labels == "Pneumonia"]
             df_label = self.df[self.df.labels == label]
 
             df_no_finding = df_no_finding.sample(quota, random_state=42)
@@ -337,7 +397,7 @@ class XrayTF:
             self.df = pd.concat([df_no_finding, df_label], axis=0)
 
         elif balance:
-            df_no_finding = self.df[self.df.labels == "No Finding"]
+            df_no_finding = self.df[self.df.labels == "Pneumonia"]
             df_label = self.df[self.df.labels == label]
 
             df_no_finding = df_no_finding.sample(
