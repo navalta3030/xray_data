@@ -1,7 +1,7 @@
 import os
 
 LINK_FOR_YOUR_SERVER = os.getenv(
-    "IMG_SERVER_URL", "")
+    "IMG_SERVER_URL", "https://images.marknavalta.com/v0.1/")
 HUB_URL = "https://tfhub.dev/google/imagenet/inception_resnet_v2/classification/4"
 
 LOCAL_IMAGES_LOCATION = "/content/images/"
@@ -18,9 +18,8 @@ LAYERS_DROPOUT = [
 
 # Cross validation
 CV_LAYERS_DROPOUT = [
-    [[512, 0.5]],
     [[256, 0.5]],
     [[128, 0.5], [64, 0.2]],
 ]
-CV_ACTIVATION = ["relu", "elu"]
-CV_LEARNING_RATE = [0.01, 0.001, 0.0005]
+CV_ACTIVATION = ["elu"]
+CV_LEARNING_RATE = [0.01, 0.001]

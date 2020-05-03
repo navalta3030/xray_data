@@ -386,10 +386,10 @@ class XrayTF:
         Function helper for No finding vs label chosen.
         replaces the dataframe which would now only consist two values.
         """
-        self.df = self.df[self.df["labels"].isin([label, "Pneumonia"])]
+        self.df = self.df[self.df["labels"].isin([label, "No Finding"])]
 
         if quota:
-            df_no_finding = self.df[self.df.labels == "Pneumonia"]
+            df_no_finding = self.df[self.df.labels == "No Finding"]
             df_label = self.df[self.df.labels == label]
 
             df_no_finding = df_no_finding.sample(quota, random_state=42)
@@ -397,7 +397,7 @@ class XrayTF:
             self.df = pd.concat([df_no_finding, df_label], axis=0)
 
         elif balance:
-            df_no_finding = self.df[self.df.labels == "Pneumonia"]
+            df_no_finding = self.df[self.df.labels == "No Finding"]
             df_label = self.df[self.df.labels == label]
 
             df_no_finding = df_no_finding.sample(
